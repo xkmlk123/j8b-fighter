@@ -1,0 +1,13 @@
+# 本地工作区数据（含本机路径等信息，不纳入版本库）
+.workbuddy/
+
+# 系统与编辑器
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+
+# 临时文件
+*.log
+*.tmp

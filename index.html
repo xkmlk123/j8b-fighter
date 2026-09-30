@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>J-8B 歼-8B 战斗机 · 三维结构 / 气动仿真平台</title>
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+<!-- ============ 3D 视口 ============ -->
+<div id="viewport"></div>
+
+<script>
+/* 运行期错误可视化：便于现场定位 */
+window.__err = [];
+window.addEventListener('error', function (e) {
+  window.__err.push((e.message || 'error') + ' @' + (e.filename || '').split('/').pop() + ':' + e.lineno);
+  document.title = 'ERR:' + window.__err.join(' | ');
+  var b = document.getElementById('errbar');
+  if (!b) {
+    b = document.createElement('div');
+    b.id = 'errbar';
+    b.style.cssText = 'position:fixed;left:0;right:0;top:60px;z-index:99;background:#d1343c;color:#fff;' +
+      'font:12px/1.6 monospace;padding:8px 14px;white-space:pre-wrap;max-height:32vh;overflow:auto';
+    document.body.appendChild(b);
+  }
+  b.textContent = '脚本错误：\n' + window.__err.join('\n');
+});
+window.__ok = 'init';
+</script>
+
+<!-- ============ 顶栏 ============ -->
+<header id="topbar">
+  <div class="brand">
+    <span class="tag">J-8B</span>
+    <div class="brand-text">
+      <h1>歼-8B 战斗机 · 结构与气动仿真平台</h1>
+      <p>J-8B "Finback-B" · 双发高空高速截击机 · 交互式机构 / 气动模型</p>
+    </div>
+  </div>
+  <div class="topbar-actions">
+    <button id="btn-cruise" class="btn">一键巡航状态</button>
+    <button id="btn-reset" class="btn ghost">重置停机状态</button>
+    <button id="btn-help" class="btn ghost">操作说明</button>
+  </div>
+</header>
+
+<!-- ============ 左侧：机构与挂载 ============ -->
+<aside id="panel-left" class="panel">
+  <section class="card">
+    <h2>机体结构 / 可动机构</h2>
+
+    <div class="ctrl">
+      <div class="ctrl-head"><label for="flap">襟翼 FLAPS</label><output id="flap-out">0°</output></div>
+      <input type="range" id="flap" min="0" max="100" value="0" />
+      <div class="hint">后缘襟翼下偏，增升同时显著增大配平阻力</div>
+    </div>
+
+    <div class="ctrl">
+      <div class="ctrl-head"><label for="brakeL">减速板 SPEEDBRAKE</label><output id="brake-out">收 0°</output></div>
+      <input type="range" id="brake" min="0" max="100" value="0" />
+      <div class="hint">后机身两侧液压减速板，向外张开 60°</div>
+    </div>
+
+    <div class="ctrl">
+      <div class="ctrl-head"><label for="gear">起落架 LANDING GEAR</label><output id="gear-out">收起</output></div>
+      <div class="seg" id="gear">
+        <button data-v="0" class="active">收上</button>
+        <button data-v="1">放下</button>
+      </div>
+      <div class="hint">前起落架前收 + 主起落架内收（收上时舱门关闭）</div>
+    </div>
+
+    <div class="ctrl">
+      <div class="ctrl-head"><label for="canopy">座舱盖 CANOPY</label><output id="canopy-out">关闭</output></div>
+      <div class="seg" id="canopy">
+        <button data-v="0" class="active">关闭</button>
+        <button data-v="1">开启</button>
+      </div>
+    </div>
+
+    <div class="ctrl">
+      <div class="ctrl-head"><label for="stab">全动平尾 PITCH</label><output id="stab-out">0°</output></div>
+      <input type="range" id="stab" min="-25" max="25" value="0" />
+      <div class="hint">全动式水平尾翼，直接决定俯仰力矩与迎角</div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>武器挂载配置</h2>
+    <p class="card-sub">共 5 个外挂点，挂载变化实时作用于气动模型（阻力 / 重量 / 惯量）</p>
+
+    <div id="stations"></div>
+
+    <div class="loadout-actions">
+      <button class="btn tiny" data-preset="empty">全空载</button>
+      <button class="btn tiny" data-preset="intercept">截击构型</button>
+      <button class="btn tiny" data-preset="cas">对地构型</button>
+      <button class="btn tiny" data-preset="ferry">转场构型</button>
+    </div>
+
+    <div class="loadout-summary">
+      <div class="row"><span>外挂件数</span><b id="lo-count">0</b></div>
+      <div class="row"><span>外挂重量</span><b id="lo-weight">0 kg</b></div>
+      <div class="row"><span>附加阻力 ΔCD₀</span><b id="lo-drag">0.0000</b></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>显示选项</h2>
+    <div class="checks">
+      <label class="chk"><input type="checkbox" id="opt-forces" checked /><span>气动力矢量</span></label>
+      <label class="chk"><input type="checkbox" id="opt-stream" checked /><span>流场流线</span></label>
+      <label class="chk"><input type="checkbox" id="opt-grid" checked /><span>地面网格</span></label>
+      <label class="chk"><input type="checkbox" id="opt-labels" checked /><span>部件标注</span></label>
+      <label class="chk"><input type="checkbox" id="opt-shadow" checked /><span>阴影</span></label>
+      <label class="chk"><input type="checkbox" id="opt-follow" checked /><span>镜头跟随</span></label>
+      <label class="chk"><input type="checkbox" id="opt-auto" /><span>自动旋转</span></label>
+    </div>
+    <div class="seg wide" id="view">
+      <button data-v="iso" class="active">立体</button>
+      <button data-v="front">前视</button>
+      <button data-v="side">侧视</button>
+      <button data-v="top">俯视</button>
+      <button data-v="rear">尾视</button>
+    </div>
+  </section>
+</aside>
+
+<!-- ============ 右侧：气动遥测 ============ -->
+<aside id="panel-right" class="panel">
+  <section class="card hud">
+    <h2>飞行状态</h2>
+    <div class="hud-main">
+      <div class="gauge">
+        <span class="g-val" id="t-mach">0.00</span>
+        <span class="g-unit">马赫 Ma</span>
+      </div>
+      <div class="gauge">
+        <span class="g-val" id="t-v">0</span>
+        <span class="g-unit">空速 km/h</span>
+      </div>
+    </div>
+    <div class="hud-grid">
+      <div><span>高度</span><b id="t-alt">0 m</b></div>
+      <div><span>迎角 α</span><b id="t-aoa">0.0°</b></div>
+      <div><span>俯仰角 θ</span><b id="t-pitch">0.0°</b></div>
+      <div><span>爬升率</span><b id="t-vs">0 m/s</b></div>
+      <div><span>过载 n</span><b id="t-g">1.00 G</b></div>
+      <div><span>升降速率</span><b id="t-climb">平飞</b></div>
+    </div>
+    <div class="warn" id="warn-stall">失速告警 STALL</div>
+  </section>
+
+  <section class="card">
+    <h2>操控输入</h2>
+    <div class="ctrl">
+      <div class="ctrl-head"><label for="throttle">油门 THROTTLE</label><output id="thr-out">0%</output></div>
+      <input type="range" id="throttle" min="0" max="100" value="0" />
+    </div>
+    <div class="ctrl">
+      <div class="ctrl-head"><label>加力燃烧室</label><output id="ab-out">断开</output></div>
+      <label class="switch"><input type="checkbox" id="ab" /><i></i><span>接通后加力（推力 +39%）</span></label>
+    </div>
+    <div class="ctrl">
+      <div class="ctrl-head"><label for="aoa-t">目标迎角 AUTO-PILOT</label><output id="aoa-out">0.0°</output></div>
+      <input type="range" id="aoa-t" min="-4" max="24" step="0.5" value="0" />
+      <div class="hint">电传配平目标迎角，平尾自动跟随</div>
+    </div>
+    <div class="seg wide" id="sim-mode">
+      <button data-v="idle" class="active">静止</button>
+      <button data-v="run">仿真运行</button>
+      <button data-v="reset">清零</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>气动系数</h2>
+    <div class="hud-grid">
+      <div><span>升力系数 C<sub>L</sub></span><b id="t-cl">0.000</b></div>
+      <div><span>阻力系数 C<sub>D</sub></span><b id="t-cd">0.000</b></div>
+      <div><span>升阻比 L/D</span><b id="t-ld">0.0</b></div>
+      <div><span>升力</span><b id="t-lift">0 kN</b></div>
+      <div><span>阻力</span><b id="t-drag">0 kN</b></div>
+      <div><span>推力</span><b id="t-thrust">0 kN</b></div>
+      <div><span>重量</span><b id="t-weight">0 kN</b></div>
+      <div><span>剩余推力</span><b id="t-excess">0 kN</b></div>
+    </div>
+    <div class="bar-wrap">
+      <div class="bar-label"><span>速度包线</span><span id="env-text">静止</span></div>
+      <div class="bar"><i id="bar-speed"></i></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>气动特性曲线 C<sub>L</sub>-α / C<sub>D</sub>-α</h2>
+    <canvas id="chart" width="320" height="150"></canvas>
+    <div class="legend">
+      <span><i class="dot cl"></i>C<sub>L</sub></span>
+      <span><i class="dot cd"></i>C<sub>D</sub></span>
+      <span><i class="dot now"></i>当前状态</span>
+    </div>
+  </section>
+</aside>
+
+<!-- 三维部件标注层 -->
+<div id="labels"></div>
+
+<!-- ============ 底部状态条 ============ -->
+<footer id="statusbar">
+  <span id="sb-model">模型：J-8B · 机长 21.59 m · 翼展 9.34 m · 双发涡喷-13A</span>
+  <span id="sb-tip">鼠标左键旋转 · 滚轮缩放 · 右键平移 &nbsp;|&nbsp; 快捷键：G 起落架 · F 襟翼 · B 减速板 · L 标注开关 · Space 油门加力</span>
+</footer>
+
+<!-- 帮助浮层 -->
+<div id="help" class="modal hidden">
+  <div class="modal-box">
+    <h3>操作说明</h3>
+    <ul>
+      <li><b>旋转 / 缩放 / 平移：</b>鼠标左键拖拽旋转视角，滚轮缩放，右键拖拽平移。</li>
+      <li><b>机体结构：</b>左侧面板可调节襟翼、减速板、起落架、座舱盖与全动平尾，所有机构均以真实铰链位置为轴做连续性动画。</li>
+      <li><b>部件标注：</b>右侧"显示选项"中勾选"部件标注"可开关三维部件名称标签，也可按 <b>L</b> 键快速切换。</li>
+      <li><b>武器挂载：</b>5 个外挂点（左右内翼、左右外翼、机腹中线）可分别选择 PL-2 / PL-5 / PL-8 空空导弹、火箭巢、航弹或副油箱，模型上实时可见。</li>
+      <li><b>气动模型：</b>右侧为纵向动力学仿真。开启"仿真运行"后，推力与阻力共同决定速度，升力与重力共同决定爬升。襟翼、减速板、起落架、挂载都会改变升阻特性。</li>
+      <li><b>失速：</b>迎角超过约 16°（放襟翼后约 18°）时升力系数下降，模型并触发失速告警。</li>
+    </ul>
+    <button class="btn" id="help-close">知道了</button>
+  </div>
+</div>
+
+<script src="libs/three.min.js"></script>
+<script src="libs/OrbitControls.js"></script>
+<script src="js/textures.js"></script>
+<script src="js/aero.js"></script>
+<script src="js/weapons.js"></script>
+<script src="js/airframe.js"></script>
+<script src="js/details.js"></script>
+<script src="js/mechanisms.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
